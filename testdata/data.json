@@ -1,0 +1,7 @@
+{
+  "todos": [
+    { "task": "Buy groceries" },
+    { "task": "Pay electricity bill" },
+    { "task": "Learn Playwright" }
+  ]
+}
