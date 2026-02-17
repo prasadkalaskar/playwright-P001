@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quality Dashboard (Epic → Feature → PBI → Tests → Defects)</title>
+
+  <!-- Plotly CDN (no hosting; but needs internet to load Plotly) -->
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#121a33;
+      --panel2:#0f1630;
+      --text:#e7ecff;
+      --muted:#aab4e6;
+      --border:rgba(255,255,255,.08);
+      --good:#1ed760;
+      --warn:#ffcc00;
+      --bad:#ff4d4d;
+    }
+    body{ margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
+    header{ padding:18px 20px; border-bottom:1px solid var(--border); display:flex; gap:14px; align-items:center; justify-content:space-between; }
+    header h1{ margin:0; font-size:18px; font-weight:700; letter-spacing:.2px; }
+    header .meta{ color:var(--muted); font-size:12px; }
+    .wrap{ padding:16px 16px 24px; max-width:1400px; margin:0 auto; }
+    .grid{ display:grid; gap:12px; }
+    .kpis{ grid-template-columns: repeat(6, minmax(0,1fr)); }
+    .row2{ grid-template-columns: 1.1fr .9fr; }
+    .row3{ grid-template-columns: 1fr 1fr 1fr; }
+    .panel{
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px 12px 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.25);
+    }
+    .panel h2{ margin:0 0 8px; font-size:13px; font-weight:700; color:var(--muted); letter-spacing:.2px; }
+    .kpi{
+      padding:12px 12px 10px;
+      background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01));
+    }
+    .kpi .label{ font-size:12px; color:var(--muted); }
+    .kpi .value{ font-size:22px; font-weight:800; margin-top:6px; }
+    .kpi .sub{ font-size:12px; color:var(--muted); margin-top:6px; display:flex; justify-content:space-between; }
+    .badge{ padding:2px 8px; border-radius:999px; font-size:11px; border:1px solid var(--border); }
+    .good{ color:var(--good); border-color:rgba(30,215,96,.35); background:rgba(30,215,96,.06); }
+    .warn{ color:var(--warn); border-color:rgba(255,204,0,.35); background:rgba(255,204,0,.06); }
+    .bad{ color:var(--bad); border-color:rgba(255,77,77,.35); background:rgba(255,77,77,.06); }
+    .controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    select{
+      background:var(--panel2);
+      color:var(--text);
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:8px 10px;
+      font-size:12px;
+      outline:none;
+    }
+    .charts{ margin-top:12px; }
+    .chart{ height:360px; }
+    .chartTall{ height:420px; }
+    .tableWrap{ overflow:auto; border-radius:12px; border:1px solid var(--border); }
+    table{ width:100%; border-collapse:collapse; font-size:12px; }
+    thead th{
+      position:sticky; top:0;
+      background:rgba(18,26,51,.95);
+      color:var(--muted);
+      text-align:left;
+      padding:10px 10px;
+      border-bottom:1px solid var(--border);
+      white-space:nowrap;
+    }
+    tbody td{
+      padding:10px 10px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      vertical-align:top;
+    }
+    tbody tr:hover{ background:rgba(255,255,255,.03); }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .pill{ display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--border); font-size:11px; }
+    .muted{ color:var(--muted); }
+    @media (max-width:1100px){
+      .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .row2{ grid-template-columns: 1fr; }
+      .row3{ grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+<header>
+  <div>
+    <h1>Quality Dashboard — Requirement Coverage · Test Coverage · Test Effectiveness</h1>
+    <div class="meta" id="metaLine">Org: demo · Project: demo · Updated: —</div>
+  </div>
+  <div class="controls">
+    <select id="epicFilter"></select>
+    <select id="sprintFilter"></select>
+    <select id="statusFilter"></select>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- KPI Row -->
+  <div class="grid kpis">
+    <div class="panel kpi">
+      <div class="label">Requirement Coverage</div>
+      <div class="value" id="kpiReqCov">—</div>
+      <div class="sub"><span class="muted">PBIs with ≥1 Test</span><span class="badge" id="kpiReqCovBadge">—</span></div>
+    </div>
+    <div class="panel kpi">
+      <div class="label">Test Execution</div>
+      <div class="value" id="kpiExec">—</div>
+      <div class="sub"><span class="muted">Tests executed (latest sprint)</span><span class="badge" id="kpiExecBadge">—</span></div>
+    </div>
+    <div class="panel kpi">
+      <div class="label">Pass Rate</div>
+      <div class="value" id="kpiPass">—</div>
+      <div class="sub"><span class="muted">Executed tests</span><span class="badge" id="kpiPassBadge">—</span></div>
+    </div>
+    <div class="panel kpi">
+      <div class="label">Test Effectiveness (DDE)</div>
+      <div class="value" id="kpiDde">—</div>
+      <div class="sub"><span class="muted">Found pre-prod / total</span><span class="badge" id="kpiDdeBadge">—</span></div>
+    </div>
+    <div class="panel kpi">
+      <div class="label">Escaped Defects</div>
+      <div class="value" id="kpiEscaped">—</div>
+      <div class="sub"><span class="muted">Production defects (sprint)</span><span class="badge" id="kpiEscapedBadge">—</span></div>
+    </div>
+    <div class="panel kpi">
+      <div class="label">Uncovered PBIs</div>
+      <div class="value" id="kpiUncovered">—</div>
+      <div class="sub"><span class="muted">PBIs with 0 tests</span><span class="badge" id="kpiUncoveredBadge">—</span></div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <!-- Row 1 -->
+    <div class="grid row2">
+      <div class="panel">
+        <h2>Coverage by Epic (Requirement Coverage)</h2>
+        <div id="chartCoverageByEpic" class="chart"></div>
+      </div>
+      <div class="panel">
+        <h2>Test Outcomes (Latest Sprint)</h2>
+        <div id="chartOutcomesPie" class="chart"></div>
+      </div>
+    </div>
+
+    <!-- Row 2 -->
+    <div class="grid row3" style="margin-top:12px;">
+      <div class="panel">
+        <h2>Trend — Coverage vs Pass Rate</h2>
+        <div id="chartTrend" class="chart"></div>
+      </div>
+      <div class="panel">
+        <h2>Hierarchy — Epic → Feature → PBI</h2>
+        <div id="chartSunburst" class="chartTall"></div>
+      </div>
+      <div class="panel">
+        <h2>Defects — Severity Mix</h2>
+        <div id="chartDefectsSeverity" class="chart"></div>
+      </div>
+    </div>
+
+    <!-- Row 3 -->
+    <div class="grid row2" style="margin-top:12px;">
+      <div class="panel">
+        <h2>Defects by Epic (Escaped vs Pre-Prod)</h2>
+        <div id="chartDefectsByEpic" class="chart"></div>
+      </div>
+      <div class="panel">
+        <h2>Action List — Uncovered PBIs / Missing Tests</h2>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Epic</th><th>Feature</th><th>PBI</th><th>State</th><th>Tests Linked</th><th>Latest Result</th><th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="actionTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /********************************************************************
+   * 1) SAMPLE DATA (replace with your flattened Azure DevOps output)
+   *
+   * Flattened rows (typical output of your API script):
+   * Each row represents one PBI and its test summary.
+   ********************************************************************/
+  const rows = [
+    // Epic: International Booking
+    { epic:"International Booking", feature:"Search & Browse", pbi:"PBI-101 Search international flights", state:"Done", sprint:"Sprint 24", testsLinked:5, executed:5, passed:5, failed:0, lastOutcome:"Passed", defects_preprod:2, defects_prod:0, severity:"S2" },
+    { epic:"International Booking", feature:"Search & Browse", pbi:"PBI-102 Filters & sorting", state:"Done", sprint:"Sprint 24", testsLinked:2, executed:2, passed:1, failed:1, lastOutcome:"Failed", defects_preprod:1, defects_prod:0, severity:"S3" },
+    { epic:"International Booking", feature:"Passenger Details", pbi:"PBI-103 Passport capture", state:"In Progress", sprint:"Sprint 24", testsLinked:0, executed:0, passed:0, failed:0, lastOutcome:"—", defects_preprod:0, defects_prod:0, severity:null },
+    { epic:"International Booking", feature:"Payments", pbi:"PBI-104 Multi-currency pricing", state:"Done", sprint:"Sprint 23", testsLinked:3, executed:3, passed:3, failed:0, lastOutcome:"Passed", defects_preprod:1, defects_prod:0, severity:"S2" },
+    { epic:"International Booking", feature:"Payments", pbi:"PBI-105 3DS payment flow", state:"Done", sprint:"Sprint 24", testsLinked:4, executed:4, passed:4, failed:0, lastOutcome:"Passed", defects_preprod:1, defects_prod:1, severity:"S1" },
+
+    // Epic: Refunds & Changes
+    { epic:"Refunds & Changes", feature:"Refund Eligibility", pbi:"PBI-201 Refund rules engine", state:"Done", sprint:"Sprint 24", testsLinked:3, executed:3, passed:2, failed:1, lastOutcome:"Failed", defects_preprod:2, defects_prod:1, severity:"S2" },
+    { epic:"Refunds & Changes", feature:"Refund Eligibility", pbi:"PBI-202 Partial refund UI", state:"Done", sprint:"Sprint 23", testsLinked:1, executed:1, passed:1, failed:0, lastOutcome:"Passed", defects_preprod:0, defects_prod:0, severity:"S3" },
+    { epic:"Refunds & Changes", feature:"Rescheduling", pbi:"PBI-203 Change flight date", state:"In Progress", sprint:"Sprint 24", testsLinked:1, executed:0, passed:0, failed:0, lastOutcome:"Not Run", defects_preprod:0, defects_prod:0, severity:null },
+    { epic:"Refunds & Changes", feature:"Rescheduling", pbi:"PBI-204 Seat re-selection", state:"To Do", sprint:"Sprint 24", testsLinked:0, executed:0, passed:0, failed:0, lastOutcome:"—", defects_preprod:0, defects_prod:0, severity:null },
+
+    // Epic: Reliability & Monitoring
+    { epic:"Reliability & Monitoring", feature:"Observability", pbi:"PBI-301 Payment failure alerts", state:"Done", sprint:"Sprint 24", testsLinked:2, executed:2, passed:2, failed:0, lastOutcome:"Passed", defects_preprod:1, defects_prod:0, severity:"S2" },
+    { epic:"Reliability & Monitoring", feature:"Performance", pbi:"PBI-302 Search response time <2s", state:"Done", sprint:"Sprint 23", testsLinked:2, executed:2, passed:1, failed:1, lastOutcome:"Failed", defects_preprod:1, defects_prod:0, severity:"S1" }
+  ];
+
+  const trends = [
+    { sprint:"Sprint 21", reqCov:78, passRate:82, escapedDefects:4 },
+    { sprint:"Sprint 22", reqCov:81, passRate:84, escapedDefects:3 },
+    { sprint:"Sprint 23", reqCov:86, passRate:88, escapedDefects:2 },
+    { sprint:"Sprint 24", reqCov:90, passRate:86, escapedDefects:3 }
+  ];
+
+  // Metadata (normally derived from your script)
+  const meta = { org:"your-org", project:"your-project", updated:new Date().toISOString().slice(0,19).replace('T',' ') };
+
+  /********************************************************************
+   * 2) FILTERS
+   ********************************************************************/
+  const epicFilter = document.getElementById("epicFilter");
+  const sprintFilter = document.getElementById("sprintFilter");
+  const statusFilter = document.getElementById("statusFilter");
+
+  function uniq(arr){ return [...new Set(arr)].sort(); }
+
+  function initFilters(){
+    const epics = ["All Epics", ...uniq(rows.map(r=>r.epic))];
+    epicFilter.innerHTML = epics.map(e=>`<option>${e}</option>`).join("");
+
+    const sprints = ["All Sprints", ...uniq(rows.map(r=>r.sprint))];
+    sprintFilter.innerHTML = sprints.map(s=>`<option>${s}</option>`).join("");
+
+    const states = ["All States", ...uniq(rows.map(r=>r.state))];
+    statusFilter.innerHTML = states.map(s=>`<option>${s}</option>`).join("");
+
+    // default view: latest sprint
+    sprintFilter.value = "Sprint 24";
+  }
+
+  function applyFilters(){
+    const e = epicFilter.value;
+    const s = sprintFilter.value;
+    const st = statusFilter.value;
+
+    return rows.filter(r =>
+      (e === "All Epics" || r.epic === e) &&
+      (s === "All Sprints" || r.sprint === s) &&
+      (st === "All States" || r.state === st)
+    );
+  }
+
+  /********************************************************************
+   * 3) KPI CALCS
+   ********************************************************************/
+  function classifyBadge(value, goodThr, warnThr){
+    // higher is better
+    if (value >= goodThr) return "good";
+    if (value >= warnThr) return "warn";
+    return "bad";
+  }
+
+  function renderKPIs(filtered){
+    const pbis = filtered.length;
+    const coveredPbis = filtered.filter(r => r.testsLinked > 0).length;
+    const uncoveredPbis = pbis - coveredPbis;
+
+    // Requirement Coverage = PBIs with >=1 test / PBIs total
+    const reqCov = pbis === 0 ? 0 : Math.round((coveredPbis / pbis) * 100);
+
+    // Execution = executed tests / linked tests (or possible tests). We use executed/(executed+not run)
+    const totalLinkedTests = filtered.reduce((a,r)=>a + r.testsLinked, 0);
+    const totalExecuted = filtered.reduce((a,r)=>a + r.executed, 0);
+    const execPct = totalLinkedTests === 0 ? 0 : Math.round((totalExecuted / totalLinkedTests) * 100);
+
+    // Pass rate = passed / executed
+    const totalPassed = filtered.reduce((a,r)=>a + r.passed, 0);
+    const totalFailed = filtered.reduce((a,r)=>a + r.failed, 0);
+    const passRate = totalExecuted === 0 ? 0 : Math.round((totalPassed / totalExecuted) * 100);
+
+    // DDE (Test Effectiveness) = pre-prod defects / (pre-prod + prod)
+    const pre = filtered.reduce((a,r)=>a + r.defects_preprod, 0);
+    const prod = filtered.reduce((a,r)=>a + r.defects_prod, 0);
+    const dde = (pre + prod) === 0 ? 0 : Math.round((pre / (pre + prod)) * 100);
+
+    // Escaped defects (prod)
+    const escaped = prod;
+
+    // Set KPI values
+    document.getElementById("kpiReqCov").textContent = reqCov + "%";
+    document.getElementById("kpiExec").textContent = execPct + "%";
+    document.getElementById("kpiPass").textContent = passRate + "%";
+    document.getElementById("kpiDde").textContent = dde + "%";
+    document.getElementById("kpiEscaped").textContent = String(escaped);
+    document.getElementById("kpiUncovered").textContent = String(uncoveredPbis);
+
+    // Badges
+    const reqClass = classifyBadge(reqCov, 95, 85);
+    const execClass = classifyBadge(execPct, 90, 75);
+    const passClass = classifyBadge(passRate, 90, 80);
+    const ddeClass  = classifyBadge(dde, 85, 70);
+
+    const escClass  = escaped <= 1 ? "good" : (escaped <= 3 ? "warn" : "bad");
+    const uncClass  = uncoveredPbis === 0 ? "good" : (uncoveredPbis <= 2 ? "warn" : "bad");
+
+    const badges = [
+      ["kpiReqCovBadge", reqClass, reqClass.toUpperCase()],
+      ["kpiExecBadge", execClass, execClass.toUpperCase()],
+      ["kpiPassBadge", passClass, passClass.toUpperCase()],
+      ["kpiDdeBadge",  ddeClass,  ddeClass.toUpperCase()],
+      ["kpiEscapedBadge", escClass, escClass.toUpperCase()],
+      ["kpiUncoveredBadge", uncClass, uncClass.toUpperCase()],
+    ];
+
+    badges.forEach(([id, cls, text])=>{
+      const el = document.getElementById(id);
+      el.className = "badge " + cls;
+      el.textContent = text;
+    });
+  }
+
+  /********************************************************************
+   * 4) CHARTS
+   ********************************************************************/
+  const baseLayout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#e7ecff" },
+    margin: { l: 45, r: 20, t: 10, b: 45 },
+    xaxis: { gridcolor: "rgba(255,255,255,.08)", zerolinecolor:"rgba(255,255,255,.08)" },
+    yaxis: { gridcolor: "rgba(255,255,255,.08)", zerolinecolor:"rgba(255,255,255,.08)" },
+    showlegend: true,
+    legend: { orientation:"h", y: 1.15 }
+  };
+
+  function chartCoverageByEpic(filtered){
+    // compute coverage by epic
+    const byEpic = {};
+    filtered.forEach(r=>{
+      if (!byEpic[r.epic]) byEpic[r.epic] = { total:0, covered:0 };
+      byEpic[r.epic].total += 1;
+      if (r.testsLinked > 0) byEpic[r.epic].covered += 1;
+    });
+
+    const epics = Object.keys(byEpic).sort();
+    const cov = epics.map(e => Math.round((byEpic[e].covered / byEpic[e].total) * 100));
+
+    const trace = {
+      type:"bar",
+      x: epics,
+      y: cov,
+      hovertemplate: "<b>%{x}</b><br>Coverage: %{y}%<extra></extra>"
+    };
+
+    const layout = JSON.parse(JSON.stringify(baseLayout));
+    layout.yaxis = { ...layout.yaxis, range:[0,100], title:"% PBIs Covered" };
+
+    Plotly.newPlot("chartCoverageByEpic", [trace], layout, {displayModeBar:false, responsive:true});
+  }
+
+  function chartOutcomesPie(filtered){
+    const passed = filtered.reduce((a,r)=>a + r.passed, 0);
+    const failed = filtered.reduce((a,r)=>a + r.failed, 0);
+    const notRun = Math.max(0, filtered.reduce((a,r)=>a + (r.testsLinked - r.executed), 0));
+    const trace = {
+      type:"pie",
+      labels:["Passed","Failed","Not Run"],
+      values:[passed, failed, notRun],
+      hole:.45,
+      textinfo:"label+percent",
+      hovertemplate: "%{label}: %{value}<extra></extra>"
+    };
+    const layout = {
+      ...baseLayout,
+      margin:{l:10,r:10,t:10,b:10},
+      showlegend:true
+    };
+    Plotly.newPlot("chartOutcomesPie", [trace], layout, {displayModeBar:false, responsive:true});
+  }
+
+  function chartTrend(){
+    const x = trends.map(t=>t.sprint);
+    const trace1 = { type:"scatter", mode:"lines+markers", name:"Requirement Coverage %", x, y: trends.map(t=>t.reqCov) };
+    const trace2 = { type:"scatter", mode:"lines+markers", name:"Pass Rate %", x, y: trends.map(t=>t.passRate), yaxis:"y2" };
+    const trace3 = { type:"bar", name:"Escaped Defects", x, y: trends.map(t=>t.escapedDefects), yaxis:"y3", opacity:.45 };
+
+    const layout = JSON.parse(JSON.stringify(baseLayout));
+    layout.yaxis = { ...layout.yaxis, range:[0,100], title:"Coverage %" };
+    layout.yaxis2 = { overlaying:"y", side:"right", range:[0,100], title:"Pass Rate %" };
+    layout.yaxis3 = { overlaying:"y", side:"right", position:1.08, range:[0, Math.max(...trends.map(t=>t.escapedDefects))+2], title:"Escaped" };
+    layout.legend = { orientation:"h", y: 1.2 };
+    Plotly.newPlot("chartTrend", [trace1, trace2, trace3], layout, {displayModeBar:false, responsive:true});
+  }
+
+  function chartSunburst(filtered){
+    // Build unique nodes Epic -> Feature -> PBI
+    // Plotly sunburst needs labels + parents arrays
+    const labels = [];
+    const parents = [];
+    const values = [];
+
+    function addNode(label, parent, value){
+      labels.push(label);
+      parents.push(parent);
+      values.push(value);
+    }
+
+    const epicSet = uniq(filtered.map(r=>r.epic));
+    epicSet.forEach(ep=>{
+      const featRows = filtered.filter(r=>r.epic===ep);
+      addNode(ep, "", featRows.length);
+
+      const featSet = uniq(featRows.map(r=>r.feature));
+      featSet.forEach(ft=>{
+        const pbiRows = featRows.filter(r=>r.feature===ft);
+        addNode(ft + "  ", ep, pbiRows.length); // spacing to avoid label collisions
+        pbiRows.forEach(r=>{
+          const covTag = r.testsLinked>0 ? "✅" : "❌";
+          addNode(`${covTag} ${r.pbi}`, ft + "  ", 1);
+        });
+      });
+    });
+
+    const trace = {
+      type:"sunburst",
+      labels, parents, values,
+      branchvalues:"total",
+      maxdepth:3,
+      hovertemplate:"<b>%{label}</b><br>Count: %{value}<extra></extra>"
+    };
+
+    const layout = {
+      ...baseLayout,
+      margin:{l:10,r:10,t:10,b:10},
+      showlegend:false
+    };
+
+    Plotly.newPlot("chartSunburst", [trace], layout, {displayModeBar:false, responsive:true});
+  }
+
+  function chartDefectsSeverity(filtered){
+    // Severity mix from rows having severity (pre-prod + prod counted by row)
+    const sev = { S1:0, S2:0, S3:0, S4:0 };
+    filtered.forEach(r=>{
+      if (r.severity){
+        const totalDef = (r.defects_preprod + r.defects_prod);
+        sev[r.severity] = (sev[r.severity]||0) + totalDef;
+      }
+    });
+
+    const x = Object.keys(sev);
+    const y = x.map(k=>sev[k]);
+
+    const trace = {
+      type:"bar",
+      x, y,
+      hovertemplate: "%{x}: %{y}<extra></extra>"
+    };
+
+    const layout = JSON.parse(JSON.stringify(baseLayout));
+    layout.yaxis = { ...layout.yaxis, title:"Defect Count" };
+    Plotly.newPlot("chartDefectsSeverity", [trace], layout, {displayModeBar:false, responsive:true});
+  }
+
+  function chartDefectsByEpic(filtered){
+    const byEpic = {};
+    filtered.forEach(r=>{
+      if (!byEpic[r.epic]) byEpic[r.epic] = { pre:0, prod:0 };
+      byEpic[r.epic].pre += r.defects_preprod;
+      byEpic[r.epic].prod += r.defects_prod;
+    });
+
+    const epics = Object.keys(byEpic).sort();
+    const pre = epics.map(e=>byEpic[e].pre);
+    const prod = epics.map(e=>byEpic[e].prod);
+
+    const t1 = { type:"bar", name:"Pre-Prod Defects", x:epics, y:pre };
+    const t2 = { type:"bar", name:"Escaped (Prod) Defects", x:epics, y:prod };
+
+    const layout = JSON.parse(JSON.stringify(baseLayout));
+    layout.barmode = "stack";
+    layout.yaxis = { ...layout.yaxis, title:"Defect Count" };
+    Plotly.newPlot("chartDefectsByEpic", [t1,t2], layout, {displayModeBar:false, responsive:true});
+  }
+
+  /********************************************************************
+   * 5) ACTION TABLE
+   ********************************************************************/
+  function renderActionTable(filtered){
+    // Show PBIs that are uncovered OR have failures OR not-run
+    const actionRows = filtered.filter(r =>
+      r.testsLinked === 0 ||
+      r.failed > 0 ||
+      (r.testsLinked > 0 && r.executed === 0) ||
+      r.lastOutcome === "Not Run"
+    );
+
+    const tbody = document.getElementById("actionTableBody");
+    tbody.innerHTML = "";
+
+    actionRows.forEach(r=>{
+      const testsTxt = r.testsLinked === 0 ? `<span class="pill bad">0</span>` : `<span class="pill">${r.testsLinked}</span>`;
+      const outcomeClass =
+        r.testsLinked === 0 ? "bad" :
+        (r.failed > 0 ? "bad" :
+        (r.executed === 0 ? "warn" : "good"));
+      const outcomeText =
+        r.testsLinked === 0 ? "No Tests" :
+        (r.failed > 0 ? "Failed" :
+        (r.executed === 0 ? "Not Run" : "Passed"));
+
+      const notes = [];
+      if (r.testsLinked === 0) notes.push("Missing test coverage");
+      if (r.executed === 0 && r.testsLinked > 0) notes.push("Tests not executed");
+      if (r.failed > 0) notes.push("Investigate failing tests");
+      if (r.defects_prod > 0) notes.push("Escaped defect(s) found");
+      const noteText = notes.join(" · ") || "—";
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.epic}</td>
+        <td>${r.feature}</td>
+        <td class="mono">${r.pbi}</td>
+        <td>${r.state}</td>
+        <td>${testsTxt}</td>
+        <td><span class="pill ${outcomeClass}">${outcomeText}</span></td>
+        <td class="muted">${noteText}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    if (actionRows.length === 0){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="7" class="muted">No action items for the current filters.</td>`;
+      tbody.appendChild(tr);
+    }
+  }
+
+  /********************************************************************
+   * 6) RENDER LOOP
+   ********************************************************************/
+  function renderAll(){
+    const filtered = applyFilters();
+    renderKPIs(filtered);
+    chartCoverageByEpic(filtered);
+    chartOutcomesPie(filtered);
+    chartTrend();
+    chartSunburst(filtered);
+    chartDefectsSeverity(filtered);
+    chartDefectsByEpic(filtered);
+    renderActionTable(filtered);
+  }
+
+  // Init
+  document.getElementById("metaLine").textContent = `Org: ${meta.org} · Project: ${meta.project} · Updated: ${meta.updated}`;
+  initFilters();
+  renderAll();
+
+  epicFilter.addEventListener("change", renderAll);
+  sprintFilter.addEventListener("change", renderAll);
+  statusFilter.addEventListener("change", renderAll);
+</script>
+</body>
+</html>
